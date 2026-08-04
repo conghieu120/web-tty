@@ -36,19 +36,21 @@ func main() {
 		}
 	}
 
-	srv := NewServer(password, os.Getenv("COOKIE_SECURE") == "true")
+	cfg := loadConfig()
+	srv := NewServer(password, cfg)
 	password = ""
 
 	go srv.idleLoop(time.Minute)
 
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/me", srv.requireAuth(srv.handleMe))
 	mux.HandleFunc("POST /api/login", srv.handleLogin)
 	mux.HandleFunc("POST /api/logout", srv.requireAuth(srv.handleLogout))
 	mux.HandleFunc("POST /api/terminal/open", srv.requireAuth(srv.handleTerminalOpen))
-	mux.HandleFunc("GET /api/terminal/stream", srv.requireAuth(srv.handleTerminalStream))
-	mux.HandleFunc("POST /api/terminal/input", srv.requireAuth(srv.handleTerminalInput))
-	mux.HandleFunc("POST /api/terminal/resize", srv.requireAuth(srv.handleTerminalResize))
-	mux.HandleFunc("POST /api/terminal/close", srv.requireAuth(srv.handleTerminalClose))
+	mux.HandleFunc("GET /api/terminal/{id}/stream", srv.requireAuth(srv.handleTerminalStream))
+	mux.HandleFunc("POST /api/terminal/{id}/input", srv.requireAuth(srv.handleTerminalInput))
+	mux.HandleFunc("POST /api/terminal/{id}/resize", srv.requireAuth(srv.handleTerminalResize))
+	mux.HandleFunc("POST /api/terminal/{id}/close", srv.requireAuth(srv.handleTerminalClose))
 
 	handler := withCORS(corsOrigins, withMaxBody(mux))
 

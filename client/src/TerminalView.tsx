@@ -9,13 +9,14 @@ import {
   apiTerminalOpen,
   apiTerminalResize,
 } from './api'
-import { apiURL } from './config'
+import { apiURL, displayServerHost, getApiBase } from './config'
 import { SettingsButton } from './SettingsButton'
 import { useTheme } from './ThemeProvider'
 
 type Props = {
   onLogout: () => void
-  onDisconnected: () => void
+  onDisconnected: (reason?: string) => void
+  onSessionId?: (id: number | null) => void
 }
 
 function decodeBase64(b64: string): Uint8Array {
@@ -27,11 +28,12 @@ function decodeBase64(b64: string): Uint8Array {
   return out
 }
 
-export function TerminalView({ onLogout, onDisconnected }: Props) {
+export function TerminalView({ onLogout, onDisconnected, onSessionId }: Props) {
   const hostRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
   const { theme } = useTheme()
   const [status, setStatus] = useState('connecting…')
+  const [sessionId, setSessionId] = useState<number | null>(null)
   const [busyLogout, setBusyLogout] = useState(false)
 
   useEffect(() => {
@@ -44,31 +46,24 @@ export function TerminalView({ onLogout, onDisconnected }: Props) {
     let fitAddon: FitAddon | null = null
     let resizeObserver: ResizeObserver | null = null
     let onWinResize: (() => void) | null = null
-
-    async function ensureOpen() {
-      try {
-        await apiTerminalOpen()
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : ''
-        if (msg.includes('already open')) {
-          await apiTerminalClose()
-          await apiTerminalOpen()
-          return
-        }
-        throw err
-      }
-    }
+    let termId: number | null = null
 
     function sendResize() {
-      if (!term || !fitAddon) return
+      if (!term || !fitAddon || termId == null) return
       fitAddon.fit()
-      void apiTerminalResize(term.rows, term.cols)
+      void apiTerminalResize(termId, term.rows, term.cols)
     }
 
     async function start() {
       try {
-        await ensureOpen()
-        if (cancelled) return
+        termId = await apiTerminalOpen()
+        if (cancelled) {
+          await apiTerminalClose(termId)
+          return
+        }
+
+        setSessionId(termId)
+        onSessionId?.(termId)
 
         term = new Terminal({
           cursorBlink: true,
@@ -83,11 +78,14 @@ export function TerminalView({ onLogout, onDisconnected }: Props) {
         term.open(host!)
         fitAddon.fit()
 
+        const id = termId
         term.onData((data) => {
-          void apiTerminalInput(data)
+          void apiTerminalInput(id, data)
         })
 
-        es = new EventSource(apiURL('/api/terminal/stream'), { withCredentials: true })
+        es = new EventSource(apiURL(`/api/terminal/${id}/stream`), {
+          withCredentials: true,
+        })
         es.addEventListener('output', (ev) => {
           const data = (ev as MessageEvent).data as string
           term?.write(decodeBase64(data))
@@ -105,7 +103,9 @@ export function TerminalView({ onLogout, onDisconnected }: Props) {
           es?.close()
           if (!cancelled) {
             setStatus('disconnected')
-            onDisconnected()
+            onDisconnected(
+              'Stream closed. Check your network or whether the server is still reachable.',
+            )
           }
         }
 
@@ -115,8 +115,9 @@ export function TerminalView({ onLogout, onDisconnected }: Props) {
         resizeObserver.observe(host!)
       } catch (err) {
         if (!cancelled) {
-          setStatus(err instanceof Error ? err.message : 'failed to start')
-          onDisconnected()
+          const msg = err instanceof Error ? err.message : 'failed to start'
+          setStatus(msg)
+          onDisconnected(msg)
         }
       }
     }
@@ -126,10 +127,16 @@ export function TerminalView({ onLogout, onDisconnected }: Props) {
     return () => {
       cancelled = true
       termRef.current = null
+      setSessionId(null)
       if (onWinResize) window.removeEventListener('resize', onWinResize)
       resizeObserver?.disconnect()
       es?.close()
       term?.dispose()
+      // Stream defer also closes the PTY; explicit close is a safety net if
+      // open succeeded but stream never started.
+      if (termId != null) {
+        void apiTerminalClose(termId)
+      }
     }
     // theme applied via separate effect; only reconnect on disconnect handler change
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -150,16 +157,41 @@ export function TerminalView({ onLogout, onDisconnected }: Props) {
     }
   }
 
+  const serverHost = displayServerHost(getApiBase())
+
   return (
     <div className="flex h-full flex-col bg-[var(--bg)]">
-      <header className="flex items-center justify-between border-b border-[var(--border)] px-4 py-2">
-        <div className="flex items-center gap-3">
-          <span className="font-mono text-xs tracking-[0.18em] text-[var(--accent)] uppercase">
+      <header className="flex items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-2">
+        <div className="flex min-w-0 flex-1 items-center gap-3">
+          <span className="shrink-0 font-mono text-xs tracking-[0.18em] text-[var(--accent)] uppercase">
             web-tty
           </span>
-          <span className="text-xs text-[var(--muted)]">{status}</span>
+          {serverHost ? (
+            <span
+              className="min-w-0 truncate font-mono text-xs text-[var(--text)]"
+              title={getApiBase()}
+            >
+              {serverHost}
+            </span>
+          ) : null}
+          {sessionId != null ? (
+            <span className="shrink-0 font-mono text-xs text-[var(--muted)]">
+              #{sessionId}
+            </span>
+          ) : null}
+          <span className="shrink-0 text-xs text-[var(--muted)]">{status}</span>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              window.open(window.location.href, '_blank', 'noopener,noreferrer')
+            }}
+            className="border border-[var(--border)] px-3 py-1.5 text-xs text-[var(--muted)] hover:border-[var(--accent)] hover:text-[var(--text)]"
+            title="Open a new terminal in a new browser tab"
+          >
+            + New tab
+          </button>
           <SettingsButton />
           <button
             type="button"

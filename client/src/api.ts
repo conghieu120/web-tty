@@ -18,6 +18,11 @@ async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
   })
 }
 
+export async function apiMe(): Promise<boolean> {
+  const res = await apiFetch('/api/me')
+  return res.ok
+}
+
 export async function apiLogin(password: string): Promise<void> {
   const res = await apiFetch('/api/login', {
     method: 'POST',
@@ -33,19 +38,21 @@ export async function apiLogout(): Promise<void> {
   await apiFetch('/api/logout', { method: 'POST' })
 }
 
-export async function apiTerminalOpen(): Promise<void> {
+export async function apiTerminalOpen(): Promise<number> {
   const res = await apiFetch('/api/terminal/open', { method: 'POST' })
   if (!res.ok) {
     throw new Error(await parseError(res))
   }
+  const body = (await res.json()) as { ok: boolean; id: number }
+  return body.id
 }
 
-export async function apiTerminalClose(): Promise<void> {
-  await apiFetch('/api/terminal/close', { method: 'POST' })
+export async function apiTerminalClose(id: number): Promise<void> {
+  await apiFetch(`/api/terminal/${id}/close`, { method: 'POST' })
 }
 
-export async function apiTerminalInput(data: string): Promise<void> {
-  const res = await apiFetch('/api/terminal/input', {
+export async function apiTerminalInput(id: number, data: string): Promise<void> {
+  const res = await apiFetch(`/api/terminal/${id}/input`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ data }),
@@ -55,8 +62,12 @@ export async function apiTerminalInput(data: string): Promise<void> {
   }
 }
 
-export async function apiTerminalResize(rows: number, cols: number): Promise<void> {
-  const res = await apiFetch('/api/terminal/resize', {
+export async function apiTerminalResize(
+  id: number,
+  rows: number,
+  cols: number,
+): Promise<void> {
+  const res = await apiFetch(`/api/terminal/${id}/resize`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ rows, cols }),

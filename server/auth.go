@@ -11,8 +11,6 @@ import (
 
 const (
 	cookieName   = "web_tty_session"
-	idleTimeout  = 30 * time.Minute
-	loginDelay   = 3 * time.Second
 	tokenLen     = 32
 	inputMaxBody = 4 << 10
 )
@@ -44,31 +42,31 @@ func newSessionToken() (string, error) {
 }
 
 type Server struct {
-	mu           sync.Mutex
-	verifier     *passwordVerifier
-	auth         *AuthSession
-	term         *TerminalSession
-	nextTermID   uint64
-	cookieSecure bool
-	streaming    bool
+	mu         sync.Mutex
+	cfg        Config
+	verifier   *passwordVerifier
+	auth       *AuthSession
+	terms      map[uint64]*TerminalSession
+	nextTermID uint64
 }
 
-func NewServer(password string, cookieSecure bool) *Server {
+func NewServer(password string, cfg Config) *Server {
 	return &Server{
-		verifier:     newPasswordVerifier(password),
-		cookieSecure: cookieSecure,
+		cfg:      cfg,
+		verifier: newPasswordVerifier(password),
+		terms:    make(map[uint64]*TerminalSession),
 	}
 }
 
-func (s *Server) setSessionCookie(w http.ResponseWriter, token string, maxAge int) {
+func (s *Server) setSessionCookie(w http.ResponseWriter, token string) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     cookieName,
 		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   s.cookieSecure,
-		SameSite: http.SameSiteStrictMode,
-		MaxAge:   maxAge,
+		Secure:   true,
+		SameSite: http.SameSiteNoneMode,
+		MaxAge:   s.cfg.CookieMaxAge,
 	})
 }
 
@@ -78,8 +76,8 @@ func (s *Server) clearSessionCookie(w http.ResponseWriter) {
 		Value:    "",
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   s.cookieSecure,
-		SameSite: http.SameSiteStrictMode,
+		Secure:   true,
+		SameSite: http.SameSiteNoneMode,
 		MaxAge:   -1,
 	})
 }
@@ -112,17 +110,18 @@ func (s *Server) idleLoop(interval time.Duration) {
 	defer ticker.Stop()
 	for range ticker.C {
 		s.mu.Lock()
-		idle := false
-		if s.auth != nil && time.Since(s.auth.LastActive) > idleTimeout {
-			idle = true
+		now := time.Now()
+		idleAuth := s.auth != nil && now.Sub(s.auth.LastActive) > s.cfg.IdleTimeout
+
+		for id, t := range s.terms {
+			if now.Sub(t.LastActive) > s.cfg.IdleTimeout {
+				s.destroyTerminalLocked(id)
+			}
 		}
-		if s.term != nil && time.Since(s.term.LastActive) > idleTimeout {
-			idle = true
-		}
-		if idle {
-			s.destroyTerminalLocked()
+
+		if idleAuth {
+			s.destroyAllTerminalsLocked()
 			s.auth = nil
-			s.streaming = false
 		}
 		s.mu.Unlock()
 	}

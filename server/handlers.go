@@ -6,12 +6,13 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strconv"
 	"time"
 )
 
 var (
-	errTerminalExists = errors.New("terminal already open")
-	errNoTerminal     = errors.New("no terminal")
+	errTooManyTerminals = errors.New("too many terminals")
+	errNoTerminal       = errors.New("no terminal")
 )
 
 type loginRequest struct {
@@ -37,6 +38,14 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
 }
 
+func parseTermID(r *http.Request) (uint64, error) {
+	return strconv.ParseUint(r.PathValue("id"), 10, 64)
+}
+
+func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 
@@ -53,7 +62,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.mu.Lock()
-	s.destroyTerminalLocked()
+	s.destroyAllTerminalsLocked()
 	token, err := newSessionToken()
 	if err != nil {
 		s.mu.Unlock()
@@ -66,7 +75,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	s.mu.Unlock()
 
 	s.waitLoginDelay(start)
-	s.setSessionCookie(w, token, 0)
+	s.setSessionCookie(w, token)
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
@@ -76,14 +85,14 @@ func (s *Server) loginFail(w http.ResponseWriter, start time.Time) {
 }
 
 func (s *Server) waitLoginDelay(start time.Time) {
-	if rem := loginDelay - time.Since(start); rem > 0 {
+	if rem := s.cfg.LoginDelay - time.Since(start); rem > 0 {
 		time.Sleep(rem)
 	}
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
-	s.destroyTerminalLocked()
+	s.destroyAllTerminalsLocked()
 	s.auth = nil
 	s.mu.Unlock()
 
@@ -92,23 +101,35 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleTerminalOpen(w http.ResponseWriter, r *http.Request) {
-	if err := s.openTerminal(); err != nil {
-		if errors.Is(err, errTerminalExists) {
-			writeError(w, http.StatusConflict, "terminal already open")
+	t, err := s.openTerminal()
+	if err != nil {
+		if errors.Is(err, errTooManyTerminals) {
+			writeError(w, http.StatusConflict, "too many terminals")
 			return
 		}
 		writeError(w, http.StatusInternalServerError, "failed to open terminal")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "id": t.ID})
 }
 
 func (s *Server) handleTerminalClose(w http.ResponseWriter, r *http.Request) {
-	s.closeTerminal()
+	id, err := parseTermID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid terminal id")
+		return
+	}
+	s.closeTerminal(id)
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 func (s *Server) handleTerminalInput(w http.ResponseWriter, r *http.Request) {
+	id, err := parseTermID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid terminal id")
+		return
+	}
+
 	r.Body = http.MaxBytesReader(w, r.Body, inputMaxBody)
 
 	var req inputRequest
@@ -122,7 +143,7 @@ func (s *Server) handleTerminalInput(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.writeTerminal([]byte(req.Data)); err != nil {
+	if err := s.writeTerminal(id, []byte(req.Data)); err != nil {
 		if errors.Is(err, errNoTerminal) {
 			writeError(w, http.StatusConflict, "no terminal")
 			return
@@ -134,6 +155,12 @@ func (s *Server) handleTerminalInput(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleTerminalResize(w http.ResponseWriter, r *http.Request) {
+	id, err := parseTermID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid terminal id")
+		return
+	}
+
 	var req resizeRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid body")
@@ -144,7 +171,7 @@ func (s *Server) handleTerminalResize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.resizeTerminal(req.Rows, req.Cols); err != nil {
+	if err := s.resizeTerminal(id, req.Rows, req.Cols); err != nil {
 		if errors.Is(err, errNoTerminal) {
 			writeError(w, http.StatusConflict, "no terminal")
 			return
@@ -156,6 +183,12 @@ func (s *Server) handleTerminalResize(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleTerminalStream(w http.ResponseWriter, r *http.Request) {
+	id, err := parseTermID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid terminal id")
+		return
+	}
+
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		writeError(w, http.StatusInternalServerError, "streaming unsupported")
@@ -163,23 +196,23 @@ func (s *Server) handleTerminalStream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.mu.Lock()
-	if s.term == nil {
+	t := s.terms[id]
+	if t == nil {
 		s.mu.Unlock()
 		writeError(w, http.StatusConflict, "no terminal")
 		return
 	}
-	if s.streaming {
+	if t.streaming {
 		s.mu.Unlock()
 		writeError(w, http.StatusConflict, "stream already active")
 		return
 	}
-	termID := s.term.ID
-	ptmx := s.term.ptmx
-	s.streaming = true
+	ptmx := t.ptmx
+	t.streaming = true
 	s.mu.Unlock()
 
-	// Close only this terminal session when the stream ends (not a newer replacement).
-	defer s.closeTerminalByID(termID)
+	// Close only this terminal when the stream ends.
+	defer s.closeTerminal(id)
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -222,10 +255,10 @@ func (s *Server) handleTerminalStream(w http.ResponseWriter, r *http.Request) {
 		case res := <-readCh:
 			if len(res.data) > 0 {
 				s.mu.Lock()
-				if s.term != nil && s.term.ID == termID {
-					s.term.LastActive = time.Now()
+				if cur := s.terms[id]; cur != nil {
+					cur.LastActive = time.Now()
 					if s.auth != nil {
-						s.auth.LastActive = s.term.LastActive
+						s.auth.LastActive = cur.LastActive
 					}
 				}
 				s.mu.Unlock()

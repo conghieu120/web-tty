@@ -15,16 +15,16 @@ type TerminalSession struct {
 	cmd        *exec.Cmd
 	CreatedAt  time.Time
 	LastActive time.Time
+	streaming  bool
 	writeMu    sync.Mutex
 }
 
-func (s *Server) destroyTerminalLocked() {
-	if s.term == nil {
+func (s *Server) destroyTerminalLocked(id uint64) {
+	t, ok := s.terms[id]
+	if !ok {
 		return
 	}
-	t := s.term
-	s.term = nil
-	s.streaming = false
+	delete(s.terms, id)
 
 	if t.cmd != nil && t.cmd.Process != nil {
 		// Wipe shell + background jobs in the PTY session (not Docker -d, etc.).
@@ -36,12 +36,18 @@ func (s *Server) destroyTerminalLocked() {
 	}
 }
 
-func (s *Server) openTerminal() error {
+func (s *Server) destroyAllTerminalsLocked() {
+	for id := range s.terms {
+		s.destroyTerminalLocked(id)
+	}
+}
+
+func (s *Server) openTerminal() (*TerminalSession, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if s.term != nil {
-		return errTerminalExists
+	if len(s.terms) >= s.cfg.MaxTerminals {
+		return nil, errTooManyTerminals
 	}
 
 	cmd := exec.Command("/bin/bash")
@@ -52,28 +58,33 @@ func (s *Server) openTerminal() error {
 
 	ptmx, err := pty.Start(cmd)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	s.nextTermID++
 	now := time.Now()
-	s.term = &TerminalSession{
+	t := &TerminalSession{
 		ID:         s.nextTermID,
 		ptmx:       ptmx,
 		cmd:        cmd,
 		CreatedAt:  now,
 		LastActive: now,
 	}
-	return nil
+	s.terms[t.ID] = t
+	if s.auth != nil {
+		s.auth.LastActive = now
+	}
+	return t, nil
 }
 
-func (s *Server) writeTerminal(data []byte) error {
+func (s *Server) writeTerminal(id uint64, data []byte) error {
 	s.mu.Lock()
-	t := s.term
+	t := s.terms[id]
 	if t != nil {
-		t.LastActive = time.Now()
+		now := time.Now()
+		t.LastActive = now
 		if s.auth != nil {
-			s.auth.LastActive = t.LastActive
+			s.auth.LastActive = now
 		}
 	}
 	s.mu.Unlock()
@@ -88,13 +99,14 @@ func (s *Server) writeTerminal(data []byte) error {
 	return err
 }
 
-func (s *Server) resizeTerminal(rows, cols uint16) error {
+func (s *Server) resizeTerminal(id uint64, rows, cols uint16) error {
 	s.mu.Lock()
-	t := s.term
+	t := s.terms[id]
 	if t != nil {
-		t.LastActive = time.Now()
+		now := time.Now()
+		t.LastActive = now
 		if s.auth != nil {
-			s.auth.LastActive = t.LastActive
+			s.auth.LastActive = now
 		}
 	}
 	s.mu.Unlock()
@@ -105,19 +117,8 @@ func (s *Server) resizeTerminal(rows, cols uint16) error {
 	return pty.Setsize(t.ptmx, &pty.Winsize{Rows: rows, Cols: cols})
 }
 
-func (s *Server) closeTerminal() {
+func (s *Server) closeTerminal(id uint64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.destroyTerminalLocked()
-}
-
-// closeTerminalByID destroys the terminal only if it is still the same session.
-// Safe for stream defer when a newer terminal may already have replaced it.
-func (s *Server) closeTerminalByID(id uint64) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.term == nil || s.term.ID != id {
-		return
-	}
-	s.destroyTerminalLocked()
+	s.destroyTerminalLocked(id)
 }
