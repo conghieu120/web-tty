@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Interactive installer for web-tty on Debian/Ubuntu (systemd).
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/OWNER/REPO/main/install.sh -o install.sh
+#   curl -fsSL https://raw.githubusercontent.com/conghieu120/web-tty/master/install.sh -o install.sh
 #   sudo bash install.sh
 set -euo pipefail
 
@@ -10,6 +10,7 @@ BIN_NAME="web-tty"
 SERVICE_NAME="web-tty"
 ENV_FILE="${INSTALL_DIR}/.env"
 UNIT_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
+RELEASE_URL="https://github.com/conghieu120/web-tty/releases/download/0.0.1/web-tty-linux-x64"
 
 DEFAULT_LISTEN_ADDR=":8080"
 DEFAULT_COOKIE_MAX_AGE="604800"
@@ -88,17 +89,18 @@ need_cmd install
 ARCH="$(uname -m)"
 case "${ARCH}" in
   x86_64|amd64) ;;
+  aarch64|arm64|armv7l|armv6l|arm)
+    die "arch=${ARCH} (ARM) chưa được hỗ trợ. Cần máy linux x86_64."
+    ;;
   *)
-    echo "Cảnh báo: arch=${ARCH}. Binary release mặc định thường là linux-amd64."
-    if ! ask_yes_no "Vẫn tiếp tục?" "N"; then
-      exit 1
-    fi
+    die "arch=${ARCH} chưa được hỗ trợ. Cần máy linux x86_64."
     ;;
 esac
 
 echo
 echo "=== web-tty installer ==="
 echo "Cài binary + systemd service, tự chạy khi boot."
+echo "Binary: ${RELEASE_URL}"
 echo
 
 if ! ask_yes_no "Tiếp tục cài đặt vào ${INSTALL_DIR}?" "Y"; then
@@ -107,11 +109,6 @@ if ! ask_yes_no "Tiếp tục cài đặt vào ${INSTALL_DIR}?" "Y"; then
 fi
 
 # ---------- gather input ----------
-
-echo
-ask "URL download binary (GitHub Release asset)" ""
-RELEASE_URL="${REPLY}"
-[[ -n "${RELEASE_URL}" ]] || die "RELEASE_URL không được trống"
 
 KEEP_ENV=0
 if [[ -f "${ENV_FILE}" ]]; then
