@@ -10,7 +10,7 @@ BIN_NAME="web-tty"
 SERVICE_NAME="web-tty"
 ENV_FILE="${INSTALL_DIR}/.env"
 UNIT_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
-RELEASE_URL="https://github.com/conghieu120/web-tty/releases/download/0.0.1/web-tty-linux-x64"
+RELEASE_URL="https://github.com/conghieu120/web-tty/releases/latest/download/web-tty-linux-x64"
 CORS_ORIGINS="https://web-tty.vercel.app"
 
 DEFAULT_LISTEN_ADDR=":8080"
