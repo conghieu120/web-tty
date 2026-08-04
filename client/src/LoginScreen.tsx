@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { apiLogin } from './api'
+import { SettingsButton } from './SettingsButton'
 
 type Props = {
   onSuccess: () => void
@@ -25,17 +26,19 @@ export function LoginScreen({ onSuccess }: Props) {
   }
 
   return (
-    <div className="flex min-h-full items-center justify-center px-4">
+    <div className="relative flex min-h-full items-center justify-center px-4">
+      <div className="absolute top-4 right-4">
+        <SettingsButton />
+      </div>
+
       <div
         className="w-full max-w-sm border border-[var(--border)] bg-[var(--panel)] p-8"
         style={{
           backgroundImage:
-            'radial-gradient(ellipse at top, rgba(143,191,74,0.08), transparent 55%)',
+            'radial-gradient(ellipse at top, color-mix(in srgb, var(--accent) 12%, transparent), transparent 55%)',
         }}
       >
-        <p
-          className="mb-1 font-mono text-xs tracking-[0.2em] text-[var(--accent)] uppercase"
-        >
+        <p className="mb-1 font-mono text-xs tracking-[0.2em] text-[var(--accent)] uppercase">
           web-tty
         </p>
         <h1 className="mb-6 text-2xl font-semibold tracking-tight">Terminal</h1>
@@ -60,10 +63,11 @@ export function LoginScreen({ onSuccess }: Props) {
           <button
             type="submit"
             disabled={loading || !password}
-            className="mt-2 bg-[var(--accent)] px-4 py-2.5 text-sm font-medium text-[#0c0f0c] disabled:cursor-not-allowed disabled:opacity-50 hover:bg-[var(--accent-dim)]"
+            className="mt-2 bg-[var(--accent)] px-4 py-2.5 text-sm font-medium text-[var(--accent-fg)] disabled:cursor-not-allowed disabled:opacity-50 hover:bg-[var(--accent-dim)]"
           >
             {loading ? 'Signing in…' : 'Sign in'}
           </button>
+          <p className="text-xs text-[var(--muted)]">Login takes ~3 seconds by design.</p>
         </form>
       </div>
     </div>

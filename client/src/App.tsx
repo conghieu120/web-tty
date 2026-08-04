@@ -1,5 +1,6 @@
 import { useCallback, useState } from 'react'
 import { LoginScreen } from './LoginScreen'
+import { SettingsButton } from './SettingsButton'
 import { TerminalView } from './TerminalView'
 
 type Phase = 'login' | 'terminal' | 'disconnected'
@@ -17,7 +18,10 @@ export default function App() {
 
   if (phase === 'disconnected') {
     return (
-      <div className="flex min-h-full flex-col items-center justify-center gap-4 px-4 text-center">
+      <div className="relative flex min-h-full flex-col items-center justify-center gap-4 px-4 text-center">
+        <div className="absolute top-4 right-4">
+          <SettingsButton />
+        </div>
         <p className="font-mono text-xs tracking-[0.2em] text-[var(--accent)] uppercase">
           web-tty
         </p>
@@ -28,7 +32,7 @@ export default function App() {
         <button
           type="button"
           onClick={() => window.location.reload()}
-          className="bg-[var(--accent)] px-4 py-2.5 text-sm font-medium text-[#0c0f0c] hover:bg-[var(--accent-dim)]"
+          className="bg-[var(--accent)] px-4 py-2.5 text-sm font-medium text-[var(--accent-fg)] hover:bg-[var(--accent-dim)]"
         >
           Reload
         </button>

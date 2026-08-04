@@ -10,6 +10,8 @@ import {
   apiTerminalResize,
 } from './api'
 import { apiURL } from './config'
+import { SettingsButton } from './SettingsButton'
+import { useTheme } from './ThemeProvider'
 
 type Props = {
   onLogout: () => void
@@ -27,6 +29,8 @@ function decodeBase64(b64: string): Uint8Array {
 
 export function TerminalView({ onLogout, onDisconnected }: Props) {
   const hostRef = useRef<HTMLDivElement>(null)
+  const termRef = useRef<Terminal | null>(null)
+  const { theme } = useTheme()
   const [status, setStatus] = useState('connecting…')
   const [busyLogout, setBusyLogout] = useState(false)
 
@@ -58,9 +62,7 @@ export function TerminalView({ onLogout, onDisconnected }: Props) {
     function sendResize() {
       if (!term || !fitAddon) return
       fitAddon.fit()
-      const rows = term.rows
-      const cols = term.cols
-      void apiTerminalResize(rows, cols)
+      void apiTerminalResize(term.rows, term.cols)
     }
 
     async function start() {
@@ -73,28 +75,9 @@ export function TerminalView({ onLogout, onDisconnected }: Props) {
           fontFamily: '"IBM Plex Mono", Consolas, monospace',
           fontSize: 14,
           lineHeight: 1.2,
-          theme: {
-            background: '#0c0f0c',
-            foreground: '#d6e0d6',
-            cursor: '#8fbf4a',
-            black: '#0c0f0c',
-            red: '#d07060',
-            green: '#8fbf4a',
-            yellow: '#c4a35a',
-            blue: '#6a9fb5',
-            magenta: '#a87ca0',
-            cyan: '#75b5aa',
-            white: '#d6e0d6',
-            brightBlack: '#5a6a5a',
-            brightRed: '#e09080',
-            brightGreen: '#a8d060',
-            brightYellow: '#e0c070',
-            brightBlue: '#8abfd0',
-            brightMagenta: '#c09cb8',
-            brightCyan: '#95d0c4',
-            brightWhite: '#f0f4f0',
-          },
+          theme: theme.xterm,
         })
+        termRef.current = term
         fitAddon = new FitAddon()
         term.loadAddon(fitAddon)
         term.open(host!)
@@ -142,12 +125,21 @@ export function TerminalView({ onLogout, onDisconnected }: Props) {
 
     return () => {
       cancelled = true
+      termRef.current = null
       if (onWinResize) window.removeEventListener('resize', onWinResize)
       resizeObserver?.disconnect()
       es?.close()
       term?.dispose()
     }
+    // theme applied via separate effect; only reconnect on disconnect handler change
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onDisconnected])
+
+  useEffect(() => {
+    if (termRef.current) {
+      termRef.current.options.theme = theme.xterm
+    }
+  }, [theme])
 
   async function handleLogout() {
     setBusyLogout(true)
@@ -159,7 +151,7 @@ export function TerminalView({ onLogout, onDisconnected }: Props) {
   }
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full flex-col bg-[var(--bg)]">
       <header className="flex items-center justify-between border-b border-[var(--border)] px-4 py-2">
         <div className="flex items-center gap-3">
           <span className="font-mono text-xs tracking-[0.18em] text-[var(--accent)] uppercase">
@@ -167,14 +159,17 @@ export function TerminalView({ onLogout, onDisconnected }: Props) {
           </span>
           <span className="text-xs text-[var(--muted)]">{status}</span>
         </div>
-        <button
-          type="button"
-          onClick={() => void handleLogout()}
-          disabled={busyLogout}
-          className="border border-[var(--border)] px-3 py-1.5 text-xs text-[var(--muted)] hover:border-[var(--accent)] hover:text-[var(--text)] disabled:opacity-50"
-        >
-          Logout
-        </button>
+        <div className="flex items-center gap-2">
+          <SettingsButton />
+          <button
+            type="button"
+            onClick={() => void handleLogout()}
+            disabled={busyLogout}
+            className="border border-[var(--border)] px-3 py-1.5 text-xs text-[var(--muted)] hover:border-[var(--accent)] hover:text-[var(--text)] disabled:opacity-50"
+          >
+            Logout
+          </button>
+        </div>
       </header>
       <div ref={hostRef} className="min-h-0 flex-1 p-2" />
     </div>
