@@ -6,3 +6,4 @@ dist/
 .DS_Store
 server/.env
 client/dist/
+server/web-tty*
