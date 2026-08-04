@@ -36,10 +36,7 @@ func main() {
 		}
 	}
 
-	srv, err := NewServer(password, os.Getenv("COOKIE_SECURE") == "true")
-	if err != nil {
-		log.Fatal(err)
-	}
+	srv := NewServer(password, os.Getenv("COOKIE_SECURE") == "true")
 	password = ""
 
 	go srv.idleLoop(time.Minute)

@@ -10,6 +10,7 @@ import (
 )
 
 type TerminalSession struct {
+	ID         uint64
 	ptmx       *os.File
 	cmd        *exec.Cmd
 	CreatedAt  time.Time
@@ -53,8 +54,10 @@ func (s *Server) openTerminal() error {
 		return err
 	}
 
+	s.nextTermID++
 	now := time.Now()
 	s.term = &TerminalSession{
+		ID:         s.nextTermID,
 		ptmx:       ptmx,
 		cmd:        cmd,
 		CreatedAt:  now,
@@ -104,5 +107,16 @@ func (s *Server) resizeTerminal(rows, cols uint16) error {
 func (s *Server) closeTerminal() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.destroyTerminalLocked()
+}
+
+// closeTerminalByID destroys the terminal only if it is still the same session.
+// Safe for stream defer when a newer terminal may already have replaced it.
+func (s *Server) closeTerminalByID(id uint64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.term == nil || s.term.ID != id {
+		return
+	}
 	s.destroyTerminalLocked()
 }

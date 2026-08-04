@@ -173,12 +173,13 @@ func (s *Server) handleTerminalStream(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "stream already active")
 		return
 	}
+	termID := s.term.ID
 	ptmx := s.term.ptmx
 	s.streaming = true
 	s.mu.Unlock()
 
-	// When stream ends for any reason, close the terminal (contract rule).
-	defer s.closeTerminal()
+	// Close only this terminal session when the stream ends (not a newer replacement).
+	defer s.closeTerminalByID(termID)
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -221,11 +222,11 @@ func (s *Server) handleTerminalStream(w http.ResponseWriter, r *http.Request) {
 		case res := <-readCh:
 			if len(res.data) > 0 {
 				s.mu.Lock()
-				if s.term != nil {
+				if s.term != nil && s.term.ID == termID {
 					s.term.LastActive = time.Now()
-				}
-				if s.auth != nil {
-					s.auth.LastActive = time.Now()
+					if s.auth != nil {
+						s.auth.LastActive = s.term.LastActive
+					}
 				}
 				s.mu.Unlock()
 

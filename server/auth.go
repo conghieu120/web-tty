@@ -7,19 +7,12 @@ import (
 	"net/http"
 	"sync"
 	"time"
-
-	"golang.org/x/crypto/argon2"
 )
 
 const (
 	cookieName   = "web_tty_session"
 	idleTimeout  = 30 * time.Minute
 	loginDelay   = 3 * time.Second
-	argonTime    = 1
-	argonMemory  = 64 * 1024
-	argonThreads = 4
-	argonKeyLen  = 32
-	saltLen      = 16
 	tokenLen     = 32
 	inputMaxBody = 4 << 10
 )
@@ -31,22 +24,15 @@ type AuthSession struct {
 }
 
 type passwordVerifier struct {
-	salt []byte
-	hash []byte
+	password []byte
 }
 
-func newPasswordVerifier(password string) (*passwordVerifier, error) {
-	salt := make([]byte, saltLen)
-	if _, err := rand.Read(salt); err != nil {
-		return nil, err
-	}
-	hash := argon2.IDKey([]byte(password), salt, argonTime, argonMemory, argonThreads, argonKeyLen)
-	return &passwordVerifier{salt: salt, hash: hash}, nil
+func newPasswordVerifier(password string) *passwordVerifier {
+	return &passwordVerifier{password: []byte(password)}
 }
 
 func (v *passwordVerifier) verify(password string) bool {
-	hash := argon2.IDKey([]byte(password), v.salt, argonTime, argonMemory, argonThreads, argonKeyLen)
-	return subtle.ConstantTimeCompare(hash, v.hash) == 1
+	return subtle.ConstantTimeCompare(v.password, []byte(password)) == 1
 }
 
 func newSessionToken() (string, error) {
@@ -62,19 +48,16 @@ type Server struct {
 	verifier     *passwordVerifier
 	auth         *AuthSession
 	term         *TerminalSession
+	nextTermID   uint64
 	cookieSecure bool
 	streaming    bool
 }
 
-func NewServer(password string, cookieSecure bool) (*Server, error) {
-	v, err := newPasswordVerifier(password)
-	if err != nil {
-		return nil, err
-	}
+func NewServer(password string, cookieSecure bool) *Server {
 	return &Server{
-		verifier:     v,
+		verifier:     newPasswordVerifier(password),
 		cookieSecure: cookieSecure,
-	}, nil
+	}
 }
 
 func (s *Server) setSessionCookie(w http.ResponseWriter, token string, maxAge int) {
