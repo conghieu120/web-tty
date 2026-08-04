@@ -11,6 +11,7 @@ SERVICE_NAME="web-tty"
 ENV_FILE="${INSTALL_DIR}/.env"
 UNIT_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 RELEASE_URL="https://github.com/conghieu120/web-tty/releases/download/0.0.1/web-tty-linux-x64"
+CORS_ORIGINS="https://web-tty.vercel.app"
 
 DEFAULT_LISTEN_ADDR=":8080"
 DEFAULT_COOKIE_MAX_AGE="604800"
@@ -123,7 +124,6 @@ AUTH_PASSWORD=""
 AUTH_PASSWORD_GENERATED=0
 SESSION_SECRET=""
 LISTEN_ADDR="${DEFAULT_LISTEN_ADDR}"
-CORS_ORIGINS=""
 COOKIE_MAX_AGE="${DEFAULT_COOKIE_MAX_AGE}"
 IDLE_TIMEOUT="${DEFAULT_IDLE_TIMEOUT}"
 LOGIN_DELAY="${DEFAULT_LOGIN_DELAY}"
@@ -149,13 +149,6 @@ if [[ "${KEEP_ENV}" -eq 0 ]]; then
 
   ask "LISTEN_ADDR" "${DEFAULT_LISTEN_ADDR}"
   LISTEN_ADDR="${REPLY}"
-
-  while true; do
-    ask "CORS_ORIGINS (vd: https://app.example.com)" ""
-    CORS_ORIGINS="${REPLY}"
-    [[ -n "${CORS_ORIGINS}" ]] && break
-    echo "CORS_ORIGINS không được trống (cần origin frontend)."
-  done
 
   ask "COOKIE_MAX_AGE (giây, 0 = session cookie)" "${DEFAULT_COOKIE_MAX_AGE}"
   COOKIE_MAX_AGE="${REPLY}"
