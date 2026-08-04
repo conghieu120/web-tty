@@ -55,6 +55,9 @@ func (s *Server) openTerminal() (*TerminalSession, error) {
 		"TERM=xterm-256color",
 		"COLORTERM=truecolor",
 	)
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		cmd.Dir = home
+	}
 
 	ptmx, err := pty.Start(cmd)
 	if err != nil {
