@@ -67,7 +67,6 @@ export function LoginScreen({ onSuccess }: Props) {
           >
             {loading ? 'Signing in…' : 'Sign in'}
           </button>
-          <p className="text-xs text-[var(--muted)]">Login takes ~3 seconds by design.</p>
         </form>
       </div>
     </div>
