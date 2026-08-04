@@ -1,62 +1,73 @@
 # web-tty
 
-Personal HTTP-only web terminal (React + Go PTY). Spec: `contract.md`.
+**Your Linux shell, in the browser.**
 
-## Client (Windows / PowerShell)
+A personal web terminal for one private server. Install the agent once, open the hosted UI, and get a full interactive shell — `vim`, `htop`, `docker logs -f`, and everything else that works in a real PTY.
 
-```powershell
-cd d:\pet-proj\web-tty\client
-npm install
-npm run dev
-```
+No WebSocket. No SSH. Just HTTP.
 
-Mở http://localhost:5173 (hoặc 5174 nếu 5173 bận).
+## Try it
 
-Browser gọi API thẳng tới `http://localhost:8080` (xem `VITE_API_BASE` trong `client/.env` nếu cần đổi).
+1. **Install the server** on a Linux x86_64 host (see below).
+2. **Expose it over HTTPS** — nginx, Cloudflare Tunnel, ngrok, or similar.
+3. Open the hosted UI: **[https://web-tty.vercel.app](https://web-tty.vercel.app)**
+4. Enter your **Server URL** and **password**, then sign in.
 
-## Server (WSL Debian — bắt buộc, cần Linux PTY + Go)
+Each browser tab gets its own terminal. Themes are available from the settings gear.
 
-Trong terminal WSL:
+## Install
+
+Requires Linux **x86_64** (Debian/Ubuntu with systemd). The installer downloads the binary from [GitHub Releases](https://github.com/conghieu120/web-tty/releases) and registers a systemd service:
 
 ```bash
-cd /mnt/d/pet-proj/web-tty/server
-
-# lần đầu
-cp .env.example .env
-# sửa AUTH_PASSWORD và SESSION_SECRET trong .env
-
-go mod tidy
-go run .
+curl -fsSL https://raw.githubusercontent.com/conghieu120/web-tty/master/install.sh -o install.sh
+sudo bash install.sh
 ```
 
-Sau khi sửa code server, **restart** `go run .`.
+You’ll be prompted for `AUTH_PASSWORD` and a few options (secrets can be auto-generated).
 
-Server lắng nghe `:8080`.
+Useful commands after install:
 
-### .env
-
-```env
-AUTH_PASSWORD=your-secret
-SESSION_SECRET=long-random-string
-COOKIE_MAX_AGE=604800
-IDLE_TIMEOUT=30m
-LOGIN_DELAY=3s
-MAX_TERMINALS=5
-LISTEN_ADDR=:8080
-CORS_ORIGINS=http://localhost:5173,http://localhost:5174,http://127.0.0.1:5173,http://127.0.0.1:5174
+```bash
+systemctl status web-tty
+journalctl -u web-tty -f
 ```
 
-- `COOKIE_MAX_AGE` — giây; `0` = session cookie (mất khi đóng browser). Mặc định 7 ngày.
-- `IDLE_TIMEOUT` — hết hạn auth/terminal khi không hoạt động (Go duration, vd. `30m`).
-- `LOGIN_DELAY` — delay cố định khi login (vd. `3s`).
-- `MAX_TERMINALS` — số PTY đồng thời tối đa (mỗi tab một terminal).
+Or grab the binary yourself from [Releases](https://github.com/conghieu120/web-tty/releases) if you prefer a manual setup.
 
-Cookie session luôn `Secure` + `SameSite=None` (phù hợp HTTPS edge / Cloudflare Tunnel). Cập nhật `CORS_ORIGINS` theo origin UI.
+<p align="center">
+  <img src="images/login.png" alt="Sign in" width="780" />
+</p>
 
-## Luồng dùng
+<p align="center">
+  <img src="images/theme-midnight.png" alt="Midnight theme" width="780" />
+</p>
 
-1. Chạy server trong WSL
-2. Chạy client `npm run dev`
-3. Đăng nhập bằng `AUTH_PASSWORD` (chờ theo `LOGIN_DELAY`)
-4. Mở thêm tab → terminal mới, không cần login lại
-5. Mất kết nối thì reload trang (tab đó mở PTY mới)
+<p align="center">
+  <img src="images/theme-moss.png" alt="Moss theme" width="780" />
+</p>
+
+## Why web-tty
+
+- Real PTY — interactive apps just work
+- Password-protected, session cookies
+- Multi-tab sessions
+- Built-in themes (Moss, Midnight, and more)
+- HTTP-only — easy behind reverse proxies and tunnels
+- Hosted UI — no need to build or host the frontend yourself
+
+## Development
+
+For local hacking (optional):
+
+```bash
+# server — Linux / WSL
+cd server && cp .env.example .env && go run .
+
+# client
+cd client && npm install && npm run dev
+```
+
+## License
+
+Private / personal use.
