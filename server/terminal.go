@@ -27,7 +27,8 @@ func (s *Server) destroyTerminalLocked() {
 	s.streaming = false
 
 	if t.cmd != nil && t.cmd.Process != nil {
-		_ = t.cmd.Process.Kill()
+		// Wipe shell + background jobs in the PTY session (not Docker -d, etc.).
+		killTerminalProcessTree(t.cmd.Process.Pid)
 		_, _ = t.cmd.Process.Wait()
 	}
 	if t.ptmx != nil {
