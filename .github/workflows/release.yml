@@ -16,12 +16,14 @@ jobs:
   release:
     runs-on: ubuntu-latest
 
-    steps:
-      - name: Checkout source
-        uses: actions/checkout@v4
+    defaults:
+      run:
+        working-directory: server
 
-      - name: Setup Go
-        uses: actions/setup-go@v5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
         with:
           go-version-file: server/go.mod
           cache: true
@@ -29,28 +31,23 @@ jobs:
 
       - name: Generate release info
         id: meta
+        working-directory: .
         run: |
           TAG="build-$(date +'%Y%m%d-%H%M%S')"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "name=Build $(date +'%Y-%m-%d %H:%M:%S')" >> "$GITHUB_OUTPUT"
 
       - name: Download dependencies
-        working-directory: server
         run: go mod download
 
       - name: Build binary
-        working-directory: server
         env:
           GOOS: linux
           GOARCH: amd64
           CGO_ENABLED: 0
         run: |
           mkdir -p ../dist
-          go build \
-            -trimpath \
-            -ldflags="-s -w" \
-            -o ../dist/web-tty-linux-x64 \
-            ./main.go
+          go build -trimpath -ldflags="-s -w" -o ../dist/web-tty-linux-x64 .
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
