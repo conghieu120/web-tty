@@ -118,6 +118,7 @@ export function TerminalView({ onLogout, onDisconnected, onSessionId }: Props) {
             void (async () => {
               const result = await clipboardWrite(selected)
               if (result === 'ok') {
+                term?.clearSelection()
                 showToastRef.current('copied')
               } else if (result === 'denied') {
                 showToastRef.current('clipboard permission denied')
