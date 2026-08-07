@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
@@ -9,6 +9,7 @@ import {
   apiTerminalOpen,
   apiTerminalResize,
 } from './api'
+import { clipboardRead, clipboardWrite } from './clipboard'
 import { apiURL, displayServerHost, getApiBase } from './config'
 import { SettingsButton } from './SettingsButton'
 import { useTheme } from './ThemeProvider'
@@ -35,6 +36,29 @@ export function TerminalView({ onLogout, onDisconnected, onSessionId }: Props) {
   const [status, setStatus] = useState('connecting…')
   const [sessionId, setSessionId] = useState<number | null>(null)
   const [busyLogout, setBusyLogout] = useState(false)
+  const [toast, setToast] = useState<string | null>(null)
+  const toastTimerRef = useRef<number | null>(null)
+
+  const showToast = useCallback((message: string) => {
+    setToast(message)
+    if (toastTimerRef.current != null) {
+      window.clearTimeout(toastTimerRef.current)
+    }
+    toastTimerRef.current = window.setTimeout(() => {
+      setToast(null)
+      toastTimerRef.current = null
+    }, 1600)
+  }, [])
+  const showToastRef = useRef(showToast)
+  showToastRef.current = showToast
+
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current != null) {
+        window.clearTimeout(toastTimerRef.current)
+      }
+    }
+  }, [])
 
   useEffect(() => {
     const host = hostRef.current
@@ -46,6 +70,7 @@ export function TerminalView({ onLogout, onDisconnected, onSessionId }: Props) {
     let fitAddon: FitAddon | null = null
     let resizeObserver: ResizeObserver | null = null
     let onWinResize: (() => void) | null = null
+    let onContextMenu: ((e: MouseEvent) => void) | null = null
     let termId: number | null = null
 
     function sendResize() {
@@ -82,6 +107,43 @@ export function TerminalView({ onLogout, onDisconnected, onSessionId }: Props) {
         term.onData((data) => {
           void apiTerminalInput(id, data)
         })
+
+        onContextMenu = (e: MouseEvent) => {
+          e.preventDefault()
+          if (!term) return
+
+          if (term.hasSelection()) {
+            const selected = term.getSelection()
+            if (!selected) return
+            void (async () => {
+              const result = await clipboardWrite(selected)
+              if (result === 'ok') {
+                showToastRef.current('copied')
+              } else if (result === 'denied') {
+                showToastRef.current('clipboard permission denied')
+              } else {
+                showToastRef.current('clipboard unavailable')
+              }
+            })()
+            return
+          }
+
+          void (async () => {
+            const result = await clipboardRead()
+            if (!result.ok) {
+              showToastRef.current(
+                result.reason === 'denied'
+                  ? 'clipboard permission denied'
+                  : 'clipboard unavailable',
+              )
+              return
+            }
+            if (!result.text || !term) return
+            term.paste(result.text)
+            showToastRef.current('pasted')
+          })()
+        }
+        host!.addEventListener('contextmenu', onContextMenu)
 
         es = new EventSource(apiURL(`/api/terminal/${id}/stream`), {
           withCredentials: true,
@@ -128,6 +190,7 @@ export function TerminalView({ onLogout, onDisconnected, onSessionId }: Props) {
       cancelled = true
       termRef.current = null
       setSessionId(null)
+      if (onContextMenu) host.removeEventListener('contextmenu', onContextMenu)
       if (onWinResize) window.removeEventListener('resize', onWinResize)
       resizeObserver?.disconnect()
       es?.close()
@@ -203,7 +266,18 @@ export function TerminalView({ onLogout, onDisconnected, onSessionId }: Props) {
           </button>
         </div>
       </header>
-      <div ref={hostRef} className="min-h-0 flex-1 p-2" />
+      <div className="relative min-h-0 flex-1">
+        <div ref={hostRef} className="h-full p-2" />
+        {toast ? (
+          <div
+            role="status"
+            aria-live="polite"
+            className="pointer-events-none absolute bottom-4 left-1/2 z-10 -translate-x-1/2 border border-[var(--border)] bg-[var(--panel)] px-3 py-1.5 font-mono text-xs text-[var(--accent)] shadow-sm"
+          >
+            {toast}
+          </div>
+        ) : null}
+      </div>
     </div>
   )
 }
